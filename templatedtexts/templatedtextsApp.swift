@@ -12,7 +12,7 @@ import SwiftData
 struct templatedtextsApp: App {
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
-            Item.self,
+            TextMessage.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
@@ -22,11 +22,31 @@ struct templatedtextsApp: App {
             fatalError("Could not create ModelContainer: \(error)")
         }
     }()
+    
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            TextsView()
         }
         .modelContainer(sharedModelContainer)
+    }
+}
+
+
+struct TextsView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Query private var texts: [TextMessage]
+
+    var body: some View {
+        VStack{
+            ForEach(texts) { text in
+                ContentView(text:text)
+            }
+        }
+        .onAppear {
+            if texts.isEmpty {
+                modelContext.insert(TextMessage(text: "", groupID: nil))
+            }
+        }
     }
 }

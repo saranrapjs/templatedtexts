@@ -7,55 +7,250 @@
 
 import SwiftUI
 import SwiftData
+import Contacts
+import MessageUI
 
-struct ContentView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Query private var items: [Item]
 
+struct PickerView: View {
+    var allGroups: [CNGroup] = []
+    @Binding var selectedGroupID: String?
+    
+    var nilTag: String? {
+        if allGroups.isEmpty {
+            return selectedGroupID
+        }
+        return nil
+    }
+    
     var body: some View {
-        NavigationSplitView {
-            List {
-                ForEach(items) { item in
-                    NavigationLink {
-                        Text("Item at \(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))")
-                    } label: {
-                        Text(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))
-                    }
-                }
-                .onDelete(perform: deleteItems)
-            }
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    EditButton()
-                }
-                ToolbarItem {
-                    Button(action: addItem) {
-                        Label("Add Item", systemImage: "plus")
-                    }
-                }
-            }
-        } detail: {
-            Text("Select an item")
-        }
-    }
-
-    private func addItem() {
-        withAnimation {
-            let newItem = Item(timestamp: Date())
-            modelContext.insert(newItem)
-        }
-    }
-
-    private func deleteItems(offsets: IndexSet) {
-        withAnimation {
-            for index in offsets {
-                modelContext.delete(items[index])
+        Picker("Group", selection: $selectedGroupID) {
+            Text("None selected").tag(nilTag as String?)
+            ForEach(allGroups, id: \.self) { group in
+                Text(group.name).tag(group.identifier as String?)
             }
         }
     }
 }
 
-#Preview {
-    ContentView()
-        .modelContainer(for: Item.self, inMemory: true)
+struct ContentView: View {
+    @State var allGroups: [CNGroup] = []
+    @State var contactsForGroup: [CNContact] = []
+    @Bindable var text: TextMessage
+    @State private var contactIndex: Int? = nil
+    @State private var isShowingMessages = false
+    @State private var needsContactsPermissions = false
+
+    var currentGroup: CNGroup? {
+        if let i = allGroups.firstIndex(where: { $0.identifier == $text.groupID.wrappedValue }) {
+            return allGroups[i]
+        }
+        return nil
+    }
+    
+    var currentContact: CNContact? {
+        guard let index = contactIndex else {
+            return nil
+        }
+        if !contactsForGroup.indices.contains(index) {
+            return nil
+        }
+        return contactsForGroup[index]
+    }
+    
+    var sampleContact: CNContact {
+        let c = CNMutableContact()
+        c.givenName = "Charles"
+        c.familyName = "Mingus"
+        if !contactsForGroup.isEmpty {
+            guard let maybeContact = contactsForGroup.first else {
+                return c
+            }
+            return maybeContact
+        }
+        return c
+    }
+
+    func interpolateText(input: String, contact: CNContact) -> String {
+        let fullName: String = CNContactFormatter.string(from: contact, style: .fullName) ?? ""
+        var text = input
+        text.replace("$name", with: fullName)
+        text.replace("$familyName", with: contact.familyName)
+        text.replace("$givenName", with: contact.givenName)
+        return text
+    }
+    
+    
+    var previewText: String {
+        interpolateText(input: $text.text.wrappedValue, contact: sampleContact)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    PickerView(allGroups: allGroups, selectedGroupID: $text.groupID)
+                }
+                .onChange(of: $allGroups.wrappedValue) {
+                    needsContactsPermissions = false
+                }
+                .onChange(of: $contactsForGroup.wrappedValue) {
+                    needsContactsPermissions = false
+                }
+                .onChange(of: $text.groupID.wrappedValue) {
+                    updateContacts()
+                }
+                .onChange(of: $contactIndex.wrappedValue) {
+                    if $contactIndex.wrappedValue != nil {
+                        isShowingMessages = true
+                    } else {
+                        isShowingMessages = false
+                    }
+                }
+                Section(header: Text("Text Message"), footer: Text("Available tokens: $name, $givenName, $familyName")) {
+                    AttributedTextEditor(text: $text.text)
+                        .frame(minHeight: 90)
+                }
+                Section(header: Text("Preview")) {
+                    Text(previewText)
+                }
+            }
+            .onAppear {
+                fetchGroups()
+                checkAuthorization()
+            }
+            .toolbar(content: {
+                if needsContactsPermissions {
+                    ToolbarItem(id: "permissions", content: {
+                        Button(action: seekContactsAuthorization, label: {
+                            Label("Change contacts access", systemImage:"key")
+                                .labelStyle(.titleAndIcon)
+                        })
+                        .buttonStyle(.borderedProminent)
+                    })
+                }
+                ToolbarItem(id: "send", content: {
+                    Button(action: onNext, label: {
+                        Label("Send", systemImage:"paperplane")
+                            .labelStyle(.titleAndIcon)
+                    })
+                    .disabled(!MFMessageComposeViewController.canSendText() || contactsForGroup.isEmpty)
+                    .buttonStyle(.borderedProminent)
+                    .sheet(isPresented: $isShowingMessages, onDismiss: onNext) {
+                        if let currentContact {
+                            MessageView(
+                                recipient: phoneNumber(contact: currentContact),
+                                body: interpolateText(input: $text.text.wrappedValue, contact: currentContact)
+                            )
+                                .edgesIgnoringSafeArea(.bottom)
+                        } else {
+                            Text(contactIndex.debugDescription)
+                        }
+                    }
+                })
+            })
+        }
+    }
+    
+    func phoneNumber(contact: CNContact) -> String  {
+        let number = contact.phoneNumbers.first?.value.stringValue
+        return number ?? ""
+    }
+
+    func seekContactsAuthorization() {
+        if let bundleId = Bundle.main.bundleIdentifier,
+            let url = URL(string: "\(UIApplication.openSettingsURLString)&path=APPNAME/\(bundleId)")
+        {
+            UIApplication.shared.open(url, options: [:], completionHandler: nil)
+        }
+    }
+    
+    func checkAuthorization() {
+        switch CNContactStore.authorizationStatus(for: .contacts) {
+        case .authorized:
+            return
+        default:
+            needsContactsPermissions = true
+        }
+    }
+    
+    func fetchGroups() {
+        Task {
+            if !allGroups.isEmpty {
+                return
+            }
+            let contactStore = CNContactStore()
+            guard let groups = try? contactStore.groups(matching: nil) else {
+                print("Failed to fetch groups from contact store")
+                return
+            }
+            if !groups.isEmpty {
+                allGroups = groups
+                updateContacts()
+            }
+        }
+    }
+    
+    func updateContacts() {
+        guard let group = currentGroup else {
+            return
+        }
+        let contacts = fetchContacts(in: group)
+        contactsForGroup = contacts
+    }
+
+    func fetchContacts(in group: CNGroup) -> [CNContact] {
+        let contactStore = CNContactStore()
+        var contacts = [CNContact]()
+        let predicate = CNContact.predicateForContactsInGroup(withIdentifier: group.identifier)
+        do {
+            let keysToFetch = [
+                CNContactFormatter.descriptorForRequiredKeys(for: .fullName) as CNKeyDescriptor,
+                CNContactPhoneNumbersKey as CNKeyDescriptor
+            ] as [CNKeyDescriptor]
+            contacts = try contactStore.unifiedContacts(matching: predicate, keysToFetch: keysToFetch)
+        } catch {
+            print("Error fetching contacts: \(error)")
+        }
+        return contacts
+    }
+
+    func onNext() {
+        if contactsForGroup.isEmpty {
+            contactIndex = nil
+            return
+        }
+        var nextIndex: Int? =  nil
+        if contactIndex == nil {
+            nextIndex = 0
+        } else {
+            nextIndex = contactIndex! + 1
+        }
+        guard let index = nextIndex else {
+            contactIndex = nil
+            return
+        }
+        if !contactsForGroup.indices.contains(index) {
+            contactIndex = nil
+            return
+        }
+        let contact = contactsForGroup[index]
+
+        // if there's no phone number, we skip the contact
+        if phoneNumber(contact: contact).count == 0 {
+            onNext()
+            return
+        }
+        contactIndex = index
+    }
+}
+
+struct Example : PreviewProvider {
+    static var groups: [CNGroup] {
+        let g = CNMutableGroup()
+        g.name = "Haha"
+        return [g]
+    }
+    static var previews: some View {
+        ContentView(allGroups: groups,text:TextMessage(text: "Hey $name how is it going?\nThis is a multi-line\nText", groupID: nil))
+    }
 }
