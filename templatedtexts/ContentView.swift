@@ -219,28 +219,25 @@ struct ContentView: View {
             contactIndex = nil
             return
         }
-        var nextIndex: Int? =  nil
-        if contactIndex == nil {
-            nextIndex = 0
-        } else {
+        var nextIndex: Int =  0
+        if contactIndex != nil {
             nextIndex = contactIndex! + 1
+            if nextIndex >= contactsForGroup.count {
+                contactIndex = nil
+                return
+            }
         }
-        guard let index = nextIndex else {
-            contactIndex = nil
+        for (index, contact) in contactsForGroup[nextIndex...].enumerated() {
+            // if there's no phone number, we attempt to find the next available contact
+            if phoneNumber(contact: contact).count == 0 {
+                continue
+            }
+            contactIndex = index + nextIndex
             return
         }
-        if !contactsForGroup.indices.contains(index) {
-            contactIndex = nil
-            return
-        }
-        let contact = contactsForGroup[index]
-
-        // if there's no phone number, we skip the contact
-        if phoneNumber(contact: contact).count == 0 {
-            onNext()
-            return
-        }
-        contactIndex = index
+        // if we've reaced this point, we ran out of contacts,
+        // and should be done
+        contactIndex = nil
     }
 }
 
