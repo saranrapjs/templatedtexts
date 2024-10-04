@@ -9,6 +9,7 @@ import SwiftUI
 import SwiftData
 import Contacts
 import MessageUI
+import PhotosUI
 
 
 struct PickerView: View {
@@ -39,6 +40,7 @@ struct ContentView: View {
     @State private var contactIndex: Int? = nil
     @State private var isShowingMessages = false
     @State private var needsContactsPermissions = false
+    @State var selectedItem: PhotosPickerItem?
 
     var currentGroup: CNGroup? {
         if let i = allGroups.firstIndex(where: { $0.identifier == $text.groupID.wrappedValue }) {
@@ -110,6 +112,21 @@ struct ContentView: View {
                     AttributedTextEditor(text: $text.text)
                         .frame(minHeight: 90)
                 }
+                PhotosPicker(
+                    selection: $selectedItem,
+                    matching: .images
+                ) {
+                    if ($selectedItem.wrappedValue != nil) {
+                        Text("Image attached")
+                    } else {
+                        Text("Attach image")
+                    }
+                }
+                if ($selectedItem.wrappedValue != nil) {
+                    Button("Remove attachment") {
+                        selectedItem = nil
+                    }
+                }
                 Section(header: Text("Preview")) {
                     Text(previewText)
                 }
@@ -139,7 +156,8 @@ struct ContentView: View {
                         if let currentContact {
                             MessageView(
                                 recipient: phoneNumber(contact: currentContact),
-                                body: interpolateText(input: $text.text.wrappedValue, contact: currentContact)
+                                body: interpolateText(input: $text.text.wrappedValue, contact: currentContact),
+                                image: $selectedItem.wrappedValue
                             )
                                 .edgesIgnoringSafeArea(.bottom)
                         } else {
