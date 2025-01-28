@@ -33,6 +33,20 @@ struct PickerView: View {
     }
 }
 
+struct ContactsFooter: View {
+    var selectedGroupID: String?
+    var contactsForGroup: [CNContact] = []
+    var body: some View {
+        if selectedGroupID != nil {
+            if contactsForGroup.isEmpty {
+                Text("No contacts in this group yet. Add contacts from the iOS Contacts app")
+            } else {
+                Text("\(contactsForGroup.count) contact\(contactsForGroup.count == 1 ? "" : "s") in this group")
+            }
+        }
+    }
+}
+
 struct ContentView: View {
     @State var allGroups: [CNGroup] = []
     @State var contactsForGroup: [CNContact] = []
@@ -89,7 +103,7 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section {
+                Section(footer:ContactsFooter(selectedGroupID: $text.groupID.wrappedValue, contactsForGroup: $contactsForGroup.wrappedValue)) {
                     PickerView(allGroups: allGroups, selectedGroupID: $text.groupID)
                 }
                 .onChange(of: $allGroups.wrappedValue) {
@@ -108,7 +122,7 @@ struct ContentView: View {
                         isShowingMessages = false
                     }
                 }
-                Section(header: Text("Text Message"), footer: Text("Available tokens: $name, $givenName, $familyName")) {
+                Section(header: Text("Text Message"), footer: Text("Available variables: $name, $givenName, $familyName")) {
                     AttributedTextEditor(text: $text.text)
                         .frame(minHeight: 90)
                 }
